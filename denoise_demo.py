@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -92,6 +93,40 @@ def tensor_to_pil(images: torch.Tensor) -> list[Image.Image]:
     images = (images.detach().float().clamp(-1, 1) * 127.5 + 128.0).clamp(0, 255).to(torch.uint8)
     arrays = images.permute(0, 2, 3, 1).cpu().numpy()
     return [Image.fromarray(array) for array in arrays]
+
+
+def concatenate_images(left: Image.Image, right: Image.Image) -> Image.Image:
+    # 将 noisy 和 denoised 左右拼接，方便直接对比同一次去噪前后的效果。
+    if left.size != right.size:
+        right = right.resize(left.size, Image.BICUBIC)
+    canvas = Image.new("RGB", (left.width + right.width, left.height))
+    canvas.paste(left.convert("RGB"), (0, 0))
+    canvas.paste(right.convert("RGB"), (left.width, 0))
+    return canvas
+
+
+def format_float_for_filename(value: float) -> str:
+    # 文件名里不用小数点，避免跨平台/脚本处理时产生歧义。
+    return f"{value:.3f}".replace(".", "p")
+
+
+def prompt_slug(prompt: str, max_words: int = 8, max_chars: int = 60) -> str:
+    # 将 prompt 压成短文件名片段；空 prompt 明确标记为 none，方便和有 prompt 的结果区分。
+    words = re.findall(r"[A-Za-z0-9]+", prompt.lower())
+    if not words:
+        return "none"
+    slug = "_".join(words[:max_words])
+    return slug[:max_chars].strip("_") or "none"
+
+
+def output_tag(t_start: float, noise_strength: float, cfg_scale: float, steps: int, prompt: str) -> str:
+    return (
+        f"t{format_float_for_filename(t_start)}"
+        f"_noise{format_float_for_filename(noise_strength)}"
+        f"_cfg{format_float_for_filename(cfg_scale)}"
+        f"_steps{steps}"
+        f"_prompt-{prompt_slug(prompt)}"
+    )
 
 
 def encode_prompt(tokenizer, text_encoder, prompt: str, cfg, device: torch.device, dtype: torch.dtype):
@@ -231,10 +266,16 @@ def main() -> None:
             cfg_scale=args.cfg_scale,
         )
 
-    tag = f"t{t_start:.3f}_noise{args.noise_strength:.3f}".replace(".", "p")
-    tensor_to_pil(image)[0].save(outdir / "input.png")
-    tensor_to_pil(x_t)[0].save(outdir / f"noisy_{tag}.png")
-    tensor_to_pil(denoised)[0].save(outdir / f"denoised_{tag}.png")
+    tag = output_tag(t_start, args.noise_strength, args.cfg_scale, args.steps, args.prompt)
+    input_image = tensor_to_pil(image)[0]
+    noisy_image = tensor_to_pil(x_t)[0]
+    denoised_image = tensor_to_pil(denoised)[0]
+    comparison_image = concatenate_images(noisy_image, denoised_image)
+
+    input_image.save(outdir / "input.png")
+    noisy_image.save(outdir / f"noisy_{tag}.png")
+    denoised_image.save(outdir / f"denoised_{tag}.png")
+    comparison_image.save(outdir / f"noisy_denoised_{tag}.png")
 
     metadata = {
         "image": str(args.image),
@@ -264,6 +305,7 @@ def main() -> None:
             "input": "input.png",
             "noisy": f"noisy_{tag}.png",
             "denoised": f"denoised_{tag}.png",
+            "noisy_denoised": f"noisy_denoised_{tag}.png",
         },
     }
     (outdir / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
