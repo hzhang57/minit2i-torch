@@ -267,14 +267,11 @@ def main() -> None:
         )
 
     tag = output_tag(t_start, args.noise_strength, args.cfg_scale, args.steps, args.prompt)
-    input_image = tensor_to_pil(image)[0]
     noisy_image = tensor_to_pil(x_t)[0]
     denoised_image = tensor_to_pil(denoised)[0]
     comparison_image = concatenate_images(noisy_image, denoised_image)
 
-    input_image.save(outdir / "input.png")
-    noisy_image.save(outdir / f"noisy_{tag}.png")
-    denoised_image.save(outdir / f"denoised_{tag}.png")
+    # 只保存合并后的对比图：左侧 noisy，右侧 denoised，避免多次实验时散落太多单图。
     comparison_image.save(outdir / f"noisy_denoised_{tag}.png")
 
     metadata = {
@@ -302,9 +299,6 @@ def main() -> None:
             "inference": "Euler integration from t_start to 1.0 with linear timesteps",
         },
         "outputs": {
-            "input": "input.png",
-            "noisy": f"noisy_{tag}.png",
-            "denoised": f"denoised_{tag}.png",
             "noisy_denoised": f"noisy_denoised_{tag}.png",
         },
     }
