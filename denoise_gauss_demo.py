@@ -256,7 +256,9 @@ def main() -> None:
     text_encoder.to(device).eval().requires_grad_(False)
 
     #image = load_image_tensor(args.image, device, dtype)
+    #image = load_image_as_gray_tensor(args.image, device, dtype)  # Load Image, transform it into gray image, then convert it into tensor
     image = load_image_gauss_blur_tensor(args.image, device, dtype)  # Load Image, transform it by gaussian bluring, then convert it into tensor
+
     text, attention_mask = encode_prompt(tokenizer, text_encoder, args.prompt, cfg, device, dtype)
 
     generator = torch.Generator(device=device).manual_seed(args.seed)
@@ -264,7 +266,8 @@ def main() -> None:
     # MiniT2I 的 flow-matching 约定：t=1 接近原图，t=0 接近纯噪声。
     t_start = 1.0 - args.noise_strength
     # 加噪公式和训练保持一致：x_t = t * x0 + (1 - t) * noise。
-    x_t = image * t_start + noise * (1.0 - t_start)
+    #x_t = image * t_start + noise * (1.0 - t_start)
+    x_t = image #* t_start + noise * (1.0 - t_start)
 
     # scheduler 记录 MiniT2I 的时间步设置；下面的 denoise_from_t 才执行 Euler 去噪。
     scheduler = MiniT2IFlowMatchScheduler(num_inference_steps=args.steps)
