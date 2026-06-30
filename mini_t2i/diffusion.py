@@ -26,8 +26,12 @@ def training_loss(
         attention_mask = torch.where(drop[:, None], torch.zeros_like(attention_mask), attention_mask)
     t = sample_lognorm(b, t_lognorm_mu, t_lognorm_sigma, device)
     noise = torch.randn_like(images) * noise_scale
+    # z_t = t * x + (1 - t) * noise
+    # 构造时刻 t 的混合图像 x_t：将原始图像 `images` 和噪声 `noise` 按比例混合，
+    # 其中 t 接近 1 时更接近原始图像，t 接近 0 时更接近噪声。
     x_t = images * t[:, None, None, None] + noise * (1.0 - t[:, None, None, None])
     pred_x0 = model(x_t, t, text_embeddings, attention_mask)
+    # 训练目标（velocity 或 x0 的转换）：将原始干净图像归一化到相对 x_t 的目标
     target = (images - x_t) / (1.0 - t[:, None, None, None]).clamp_min(0.05)
     v_pred = (pred_x0 - x_t) / (1.0 - t[:, None, None, None]).clamp_min(0.05)
     per_sample = (v_pred - target).pow(2).mean(dim=(1, 2, 3))
