@@ -266,8 +266,8 @@ def main() -> None:
     # MiniT2I 的 flow-matching 约定：t=1 接近原图，t=0 接近纯噪声。
     t_start = 1.0 - args.noise_strength
     # 加噪公式和训练保持一致：x_t = t * x0 + (1 - t) * noise。
-    #x_t = image * t_start + noise * (1.0 - t_start)
-    x_t = image #* t_start + noise * (1.0 - t_start)
+    x_t = image * t_start + noise * (1.0 - t_start)
+    #x_t = image #* t_start + noise * (1.0 - t_start)
 
     # scheduler 记录 MiniT2I 的时间步设置；下面的 denoise_from_t 才执行 Euler 去噪。
     scheduler = MiniT2IFlowMatchScheduler(num_inference_steps=args.steps)
