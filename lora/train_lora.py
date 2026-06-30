@@ -499,6 +499,9 @@ def compute_minit2i_loss(transformer, scheduler, images, prompt_embeds, attentio
         dtype=weight_dtype,
         generator=train_generator,
     ) * 2
+    # z_t = t * x + (1 - t) * noise
+    # 这里构造当前时刻 t 下的噪声图像 x_t，
+    # 即将原始干净图像 images 与噪声 noise 按比例混合。
     x_t = images * t[:, None, None, None] + noise * (1 - t[:, None, None, None])
     target = (images - x_t) / torch.clamp(1 - t[:, None, None, None], min=0.05)
     model = find_minit2i_transformer(transformer)
