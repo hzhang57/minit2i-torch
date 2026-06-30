@@ -160,12 +160,15 @@ def sample(args):
     old_steps = model.model.cfg.n_T
     manifest = ["prompt_idx\timage_idx\tseed\tprompt\tfile"]
     try:
+        # 在采样前临时设置模型的推理步数
         model.model.cfg.n_T = args.steps
         for prompt_idx, prompt in enumerate(args.prompt):
+            # 将 prompt 编码为文本嵌入（prompt_embeds）和注意力掩码（attention_mask）
             prompt_embeds, attention_mask = encode_prompt(tokenizer, text_encoder, prompt, cfg, device, dtype)
             for image_idx in range(args.num_images_per_prompt):
                 seed = args.seed + prompt_idx * args.num_images_per_prompt + image_idx
                 generator = torch.Generator(device=device).manual_seed(seed)
+                # 调用模型采样接口：内部执行去噪迭代/ODE 以从噪声生成图像
                 images = model.sample(
                     prompt_embeds,
                     attention_mask.to(dtype=dtype),
@@ -173,11 +176,13 @@ def sample(args):
                     generator=generator,
                     progress=True,
                 )
+                # 将返回的张量转换为 PIL.Image 并保存
                 image = tensor_to_pil(images)[0]
                 filename = f"sample_prompt_{prompt_idx:02d}_seed_{seed:06d}.png"
                 image.save(outdir / filename)
                 manifest.append(f"{prompt_idx}\t{image_idx}\t{seed}\t{prompt}\t{filename}")
     finally:
+        # 恢复原始步数
         model.model.cfg.n_T = old_steps
 
     (outdir / "samples.tsv").write_text("\n".join(manifest) + "\n")
