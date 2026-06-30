@@ -237,11 +237,21 @@ class MiniT2ITextToImagePipeline(DiffusionPipeline):
             for p in prompt:
                 prompt_batch.extend([p] * num_images_per_prompt)
 
+        # 生成主流程（中文注释）：
+        # 1) 根据 `num_images_per_prompt` 将每条 prompt 扩展为最终的 `prompt_batch`。
+        # 2) 使用 `_encode_prompt`（tokenizer + text_encoder）将文本转换为嵌入 `text` 和掩码 `attn`。
+        # 3) 临时设置模型采样步数 `n_T` 为传入的 `num_inference_steps`（若未指定则使用 scheduler 的默认）。
+        # 4) 调用 `self.transformer.sample(...)` 执行采样：内部通过多步去噪/ODE 迭代将噪声变为图像，
+        #    并支持 classifier-free guidance（通过 `cfg_scale` 控制条件驱动强度）。
+        # 5) 返回的 `images` 范围为 [-1, 1]，后续会被缩放为 uint8 或 PIL.Image 以便保存与显示。
+
         old_steps = self.transformer.mmjit_config.n_T
         self.transformer.model.cfg.n_T = int(num_inference_steps or self.scheduler.config.num_inference_steps)
         try:
+            # 文本编码：tokenizer -> text_encoder -> 得到 `text`（文本向量）与 `attn`（注意力掩码）
             text, attn = self._encode_prompt(prompt_batch, device)
             model_dtype = next(self.transformer.parameters()).dtype
+            # 调用 transformer 的采样接口：执行从噪声到图像的迭代采样，支持 cfg 指导
             images = self.transformer.sample(
                 text.to(dtype=model_dtype),
                 attn.to(dtype=model_dtype),
@@ -250,6 +260,7 @@ class MiniT2ITextToImagePipeline(DiffusionPipeline):
                 progress=progress,
             )
         finally:
+            # 恢复模型原始步数配置，避免对后续调用造成副作用
             self.transformer.model.cfg.n_T = old_steps
 
         images = (images.clamp(-1, 1) * 127.5 + 128.0).clamp(0, 255).to(torch.uint8)
