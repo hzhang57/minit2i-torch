@@ -168,6 +168,9 @@ def run_visualize(cfg, model, text_encoder, batch, device, dtype, step, name="sa
     mask = batch["attention_mask"].to(device, non_blocking=True)
     text = encode_text(text_encoder, input_ids, mask, dtype)
     src = model.module if hasattr(model, "module") else model
+    # 使用 euler_sample 从文本嵌入采样图像（文本 -> 图像）
+    # 1) 将文本嵌入传入 euler_sample，euler_sample 内部执行多步去噪以从随机噪声生成图像。
+    # 2) 返回的 `samples` 范围为 [-1, 1]，随后通过 `save_grid` 保存为图片网格。
     samples = euler_sample(src, text[:4], mask[:4], cfg.image_size, steps=min(cfg.n_T, 8), cfg_scale=cfg.cfg_scale)
     out = Path(cfg.output_dir) / "samples" / f"{name}_{step:06d}.png"
     if is_main():
@@ -342,6 +345,18 @@ def train(cfg: TrainConfig, eval_only: bool = False, eval_step: int | None = Non
             t1 = time.time()
             images = prepare_images(batch["pixel_values"], device)
             input_ids = batch["input_ids"].to(device, non_blocking=True)
+            # ===================== attention_mask 详解（中文） =====================
+            # `attention_mask` 是由 tokenizer 生成的张量，通常形状为 [batch_size, seq_len]。
+            # - 元素取值：通常为 1 表示该位置为有效 token，0 表示为 padding（填充位）。
+            # - 类型与设备：这里把它移动到训练设备（GPU），保留整型张量或布尔张量形式，
+            #   downstream 的编码器/模型会根据需要将其转换为 bool 或 float。
+            # - 用途：在计算自注意力（self-attention）时，attention_mask 用于屏蔽 padding
+            #   位置，防止模型把填充区域当作有效上下文参与注意力计算；同时也用于文本
+            #   编码器输出与图像条件融合时，指示文本实际长度以避免无意义的上下文影响。
+            # - 注意：某些模型或接口期望 mask 为 0/1、True/False 或者以较大负数加到注意力分数上，
+            #   具体细节由调用的编码器（如 T5EncoderModel）内部处理，此处直接把 tokenizer 的
+            #   `attention_mask` 传入并放到设备上即可。
+            # ======================================================================
             mask = batch["attention_mask"].to(device, non_blocking=True)
             t2 = time.time()
             with torch.no_grad(), torch.autocast("cuda", dtype=dtype):
